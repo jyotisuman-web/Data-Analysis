@@ -1,0 +1,100 @@
+import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from textblob import TextBlob
+from wordcloud import WordCloud
+
+# --- Title ---
+st.set_page_config(page_title="LinkedIn Reviews Dashboard", layout="wide")
+st.title("📊 LinkedIn Reviews Sentiment Analysis Dashboard")
+
+# --- Load CSV File ---
+file_path = "linkedin-reviews.csv"
+
+try:
+    df = pd.read_csv(file_path)
+except FileNotFoundError:
+    st.error(f"❌ File not found at: {file_path}")
+    st.stop()
+
+# --- Preprocessing ---
+df['Review Length'] = df['Review'].apply(len)
+
+# --- Sentiment Analysis ---
+def textblob_sentiment(review):
+    polarity = TextBlob(review).sentiment.polarity
+    if polarity > 0.1:
+        return 'Positive'
+    elif polarity < -0.1:
+        return 'Negative'
+    else:
+        return 'Neutral'
+
+df['Sentiment'] = df['Review'].apply(textblob_sentiment)
+
+# --- Sentiment-Rating Match (Accuracy Calculation) ---
+def is_sentiment_correct(row):
+    if (row['Rating'] >= 4 and row['Sentiment'] == 'Positive') or \
+       (row['Rating'] <= 2 and row['Sentiment'] == 'Negative') or \
+       (row['Rating'] == 3 and row['Sentiment'] == 'Neutral'):
+        return 1
+    else:
+        return 0
+
+df['Correct'] = df.apply(is_sentiment_correct, axis=1)
+accuracy = df['Correct'].sum() / len(df)
+
+# --- Sidebar Filters ---
+st.sidebar.header("🔎 Filter Reviews")
+rating_filter = st.sidebar.multiselect("Filter by Rating", options=sorted(df['Rating'].unique()), default=sorted(df['Rating'].unique()))
+sentiment_filter = st.sidebar.multiselect("Filter by Sentiment", options=['Positive', 'Negative', 'Neutral'], default=['Positive', 'Negative', 'Neutral'])
+
+filtered_df = df[(df['Rating'].isin(rating_filter)) & (df['Sentiment'].isin(sentiment_filter))]
+
+# --- Key Metrics ---
+st.subheader("📈 Overview")
+col1, col2, col3 = st.columns(3)
+col1.metric("Total Reviews", len(filtered_df))
+col2.metric("Sentiment Accuracy", f"{accuracy:.2%}")
+col3.metric("Avg. Review Length", int(filtered_df['Review Length'].mean()))
+
+# --- Rating Distribution ---
+st.subheader("📌 Rating Distribution")
+fig1, ax1 = plt.subplots()
+sns.countplot(data=filtered_df, x='Rating', ax=ax1)
+st.pyplot(fig1)
+
+# --- Review Length Histogram ---
+st.subheader("✏️ Review Length Distribution")
+fig2, ax2 = plt.subplots()
+sns.histplot(filtered_df['Review Length'], bins=50, kde=True, ax=ax2)
+st.pyplot(fig2)
+
+# --- Sentiment Counts ---
+st.subheader("😊 Sentiment Distribution")
+fig3, ax3 = plt.subplots()
+sns.countplot(data=filtered_df, x='Sentiment', order=['Positive', 'Neutral', 'Negative'], ax=ax3)
+st.pyplot(fig3)
+
+# --- Sentiment Across Ratings ---
+st.subheader("📊 Sentiment by Rating")
+fig4, ax4 = plt.subplots()
+sns.countplot(data=filtered_df, x='Rating', hue='Sentiment', ax=ax4)
+st.pyplot(fig4)
+
+# --- Word Clouds ---
+st.subheader("☁️ Word Clouds by Sentiment")
+for sentiment in ['Positive', 'Negative', 'Neutral']:
+    if sentiment in filtered_df['Sentiment'].values:
+        st.markdown(f"**{sentiment} Reviews**")
+        text = ' '.join(filtered_df[filtered_df['Sentiment'] == sentiment]['Review'])
+        wordcloud = WordCloud(width=800, height=400, background_color='white').generate(text)
+        fig_wc, ax_wc = plt.subplots(figsize=(10, 5))
+        ax_wc.imshow(wordcloud, interpolation='bilinear')
+        ax_wc.axis('off')
+        st.pyplot(fig_wc)
+
+# --- Data Table ---
+st.subheader("📄 Filtered Data")
+st.dataframe(filtered_df[['Rating', 'Review', 'Sentiment', 'Review Length', 'Correct']])
